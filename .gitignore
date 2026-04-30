@@ -1,0 +1,8 @@
+.DS_Store
+tmux/plugins/
+tmux/resurrect/
+nvim/.DS_Store
+nvim/.netrwhist
+kitty/.DS_Store
+*.swp
+*.swo

@@ -1,0 +1,16 @@
+remember_window_size  no
+initial_window_width  1200
+initial_window_height 800
+font_family      JetBrainsMono Nerd Font
+font_size        14.0
+window_padding_width 8
+hide_window_decorations titlebar-only
+confirm_os_window_close 0
+tab_bar_style powerline
+
+map cmd+t new_tab_with_cwd
+map cmd+1 goto_tab 1
+map cmd+2 goto_tab 2
+map cmd+3 goto_tab 3
+macos_traditional_fullscreen yes
+macos_traditional_fullscreen yes
