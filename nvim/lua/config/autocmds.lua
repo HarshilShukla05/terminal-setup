@@ -1,8 +1,13 @@
--- Autocmds are automatically loaded on the VeryLazy event
--- Default autocmds that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/autocmds.lua
---
--- Add any additional autocmds here
--- with `vim.api.nvim_create_autocmd`
---
--- Or remove existing autocmds by their group name (which is prefixed with `lazyvim_` for the defaults)
--- e.g. vim.api.nvim_del_augroup_by_name("lazyvim_wrap_spell")
+-- Autocmds loaded on VeryLazy (which fires AFTER VimEnter, so a VimEnter
+-- autocmd here would never run — we just do the check directly).
+
+-- On `nvim` with no file argument, pop the Telescope file picker.
+-- Pick a file -> opens it. <Esc> -> drops you in an empty buffer.
+if vim.fn.argc() == 0 then
+  vim.schedule(function()
+    local ok, builtin = pcall(require, "telescope.builtin")
+    if ok then
+      builtin.find_files()
+    end
+  end)
+end

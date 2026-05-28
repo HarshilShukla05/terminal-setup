@@ -15,16 +15,16 @@ return {
         transparent = false,
         dimInactive = false,
         terminalColors = true,
-        theme = "wave",
-        background = { dark = "wave", light = "lotus" },
+        theme = "dragon",
+        background = { dark = "dragon", light = "lotus" },
         colors = {
           theme = {
             all = {
               ui = {
                 bg_gutter = "none",
                 float = {
-                  bg = "#1a1a22",
-                  bg_border = "#223249",
+                  bg = "#0d0c0c",
+                  bg_border = "#393836",
                 },
               },
             },
@@ -64,11 +64,11 @@ return {
     end,
     config = function(_, opts)
       require("kanagawa").setup(opts)
-      vim.cmd.colorscheme("kanagawa-wave")
+      vim.cmd.colorscheme("kanagawa-dragon")
     end,
   },
   {
     "LazyVim/LazyVim",
-    opts = { colorscheme = "kanagawa-wave" },
+    opts = { colorscheme = "kanagawa-dragon" },
   },
 }
