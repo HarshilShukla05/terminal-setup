@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# tmux-sessionizer — adapted from ThePrimeagen, multi-user friendly.
+#
+# Each user lists their project roots in:   ~/.config/tmux-sessionizer/paths
+#   - one absolute path per line
+#   - ~ (home) is expanded
+#   - `#` starts a comment, blank lines ignored
+#   - non-existent paths are silently skipped
+# If that file doesn't exist, falls back to: ~/projects ~/Developer ~/work
+#
+# Each root is scanned at depth 1 (its direct subdirectories = projects),
+# fed into fzf, then opened/attached as a tmux session.
+#
+# Override scan depth ad-hoc with: TMUX_SESSIONIZER_DEPTH=2 tmux-sessionizer
+
+set -u
+
+ROOTS_FILE="$HOME/.config/tmux-sessionizer/paths"
+DEPTH="${TMUX_SESSIONIZER_DEPTH:-1}"
+
+# Resolve roots (uses `while read` instead of `mapfile` so it works on macOS's
+# default bash 3.2, not just bash 4+).
+raw_roots=()
+if [[ -f "$ROOTS_FILE" ]]; then
+    while IFS= read -r line; do
+        raw_roots+=("$line")
+    done < <(grep -vE '^\s*(#|$)' "$ROOTS_FILE")
+else
+    raw_roots=("$HOME/projects" "$HOME/Developer" "$HOME/work")
+fi
+
+roots=()
+for r in "${raw_roots[@]}"; do
+    expanded="${r/#\~/$HOME}"
+    [[ -d "$expanded" ]] && roots+=("$expanded")
+done
+
+if [[ ${#roots[@]} -eq 0 ]]; then
+    echo "tmux-sessionizer: no project roots exist." >&2
+    echo "Configure them in: $ROOTS_FILE" >&2
+    exit 1
+fi
+
+if [[ $# -eq 1 ]]; then
+    selected=$1
+else
+    selected=$(find "${roots[@]}" -mindepth 1 -maxdepth "$DEPTH" -type d 2>/dev/null \
+        | fzf --prompt="  project > " --height=60% --reverse)
+fi
+
+if [[ -z $selected ]]; then
+    exit 0
+fi
+
+selected_name=$(basename "$selected" | tr . _ | tr ' ' _)
+tmux_running=$(pgrep tmux 2>/dev/null || true)
+
+if [[ -z ${TMUX:-} ]] && [[ -z $tmux_running ]]; then
+    tmux new-session -s "$selected_name" -c "$selected"
+    exit 0
+fi
+
+if ! tmux has-session -t="$selected_name" 2>/dev/null; then
+    tmux new-session -ds "$selected_name" -c "$selected"
+fi
+
+if [[ -z ${TMUX:-} ]]; then
+    tmux attach-session -t "$selected_name"
+else
+    tmux switch-client -t "$selected_name"
+fi

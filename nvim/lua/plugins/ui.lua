@@ -10,23 +10,12 @@ return {
     end,
   },
 
-  -- ─── Bufferline (clean: no slant, just tabs) ─────────────────────────
-  {
-    "akinsho/bufferline.nvim",
-    opts = function(_, opts)
-      opts.options = vim.tbl_deep_extend("force", opts.options or {}, {
-        always_show_bufferline = true,
-        separator_style = "thin",
-        show_buffer_close_icons = false,
-        show_close_icon = false,
-        indicator = { style = "underline" },
-        modified_icon = "●",
-      })
-      return opts
-    end,
-  },
+  -- ─── Bufferline disabled (no tab bar at top — more editor space) ────
+  -- Buffer navigation still works via Harpoon (<leader>a/<M-1..4>),
+  -- Telescope buffers (<leader>,), and :bnext/:bprev.
+  { "akinsho/bufferline.nvim", enabled = false },
 
-  -- ─── Lualine (minimal Kanagawa, big & clean) ─────────────────────────
+  -- ─── Lualine (kanagawa README look: rounded sections, compact mode) ──
   {
     "nvim-lualine/lualine.nvim",
     opts = function(_, opts)
@@ -35,20 +24,56 @@ return {
       opts.options = vim.tbl_deep_extend("force", opts.options or {}, {
         theme = "kanagawa",
         globalstatus = true,
-        component_separators = "",
-        section_separators = { left = "", right = "" },
+        -- thin vertical between components inside a section, rounded edges
+        -- between sections (powerline half-circles, Nerd Font required).
+        component_separators = { left = "\u{2502}", right = "\u{2502}" }, -- │ thin vertical
+        section_separators   = { left = "\u{e0b6}", right = "\u{e0b4}" }, -- powerline rounded half-circles
       })
 
+      -- LSP indicator: "[LSP] JS" / "[LSP] RUST" / etc. — compact, matches
+      -- the kanagawa README look (single tag + uppercase language).
+      local lang_short = {
+        javascript = "JS",  typescript = "TS",
+        javascriptreact = "JSX", typescriptreact = "TSX",
+        python = "PY", markdown = "MD",
+      }
+      local function lsp_status()
+        if #vim.lsp.get_clients({ bufnr = 0 }) == 0 then return "" end
+        local ft = vim.bo.filetype
+        return "[LSP] " .. (lang_short[ft] or ft:upper())
+      end
+
+      -- Repo name = the dir holding the nearest .git (cached per-buffer).
+      local function repo_name()
+        local buf = vim.api.nvim_get_current_buf()
+        local cached = vim.b[buf].repo_name_cache
+        if cached ~= nil then return cached end
+        local path = vim.api.nvim_buf_get_name(buf)
+        local dir  = (path ~= "" and vim.fn.fnamemodify(path, ":h")) or vim.fn.getcwd()
+        local found = vim.fs.find(".git", { path = dir, upward = true })[1]
+        local name = found and vim.fn.fnamemodify(vim.fs.dirname(found), ":t") or ""
+        vim.b[buf].repo_name_cache = name
+        return name
+      end
+
       opts.sections = {
-        lualine_a = { { "mode" } },
+        -- "N" / "I" / "V" / "C" — single letter for compactness like reference
+        lualine_a = {
+          { "mode", fmt = function(str) return str:sub(1, 1) end },
+        },
         lualine_b = {
+          {
+            repo_name,
+            icon = "",
+            cond = function() return repo_name() ~= "" end,
+          },
           { "branch", icon = "" },
           {
             "diff",
             symbols = {
-              added = icons.git.added,
+              added    = icons.git.added,
               modified = icons.git.modified,
-              removed = icons.git.removed,
+              removed  = icons.git.removed,
             },
             source = function()
               local g = vim.b.gitsigns_status_dict
@@ -61,6 +86,14 @@ return {
         lualine_c = {
           { "filetype", icon_only = true, separator = "", padding = { left = 1, right = 0 } },
           { LazyVim.lualine.pretty_path() },
+          -- LSP-powered breadcrumb: shows where the cursor is in the code structure
+          {
+            function() return require("nvim-navic").get_location() end,
+            cond = function()
+              local ok, navic = pcall(require, "nvim-navic")
+              return ok and navic.is_available()
+            end,
+          },
         },
         lualine_x = {
           {
@@ -72,9 +105,10 @@ return {
               hint  = icons.diagnostics.Hint,
             },
           },
+          { lsp_status, icon = "" },
         },
-        lualine_y = { { "progress" } },
-        lualine_z = { { "location" } },
+        lualine_y = { { "location" } },
+        lualine_z = { { "progress" } },
       }
 
       return opts

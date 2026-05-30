@@ -36,10 +36,23 @@ return {
           return {
             CursorLine = { bg = theme.ui.bg_p1 },
             CursorLineNr = { fg = palette.carpYellow, bold = true },
-            WinSeparator = { fg = theme.ui.bg_m3, bg = "NONE" },
-            NormalFloat = { bg = theme.ui.bg_m3 },
-            FloatBorder = { fg = palette.waveBlue2, bg = theme.ui.bg_m3 },
-            FloatTitle = { fg = palette.springBlue, bg = theme.ui.bg_m3, bold = true },
+            -- Thin visible separator between nvim splits (dragon overlay tone).
+            WinSeparator = { fg = "#393836", bg = "NONE" },
+            -- Transparent floats (kanagawa.nvim README recipe): floats blend
+            -- with the editor bg instead of showing as a separate darker box.
+            NormalFloat = { bg = "none" },
+            FloatBorder = { bg = "none" },
+            FloatTitle  = { bg = "none" },
+
+            -- Telescope: same Dragon-green accent for all 3 boxes — titles as
+            -- filled chips (dark text on green) and the box borders in green.
+            TelescopeResultsTitle  = { fg = "#181616", bg = "#87a987", bold = true },
+            TelescopePreviewTitle  = { fg = "#181616", bg = "#87a987", bold = true },
+            TelescopePromptTitle   = { fg = "#181616", bg = "#87a987", bold = true },
+            TelescopeBorder        = { fg = "#87a987" },
+            TelescopeResultsBorder = { fg = "#87a987" },
+            TelescopePreviewBorder = { fg = "#87a987" },
+            TelescopePromptBorder  = { fg = "#87a987" },
             NormalDark = { fg = theme.ui.fg_dim, bg = theme.ui.bg_m3 },
             LazyNormal = { bg = theme.ui.bg_m3, fg = theme.ui.fg_dim },
             MasonNormal = { bg = theme.ui.bg_m3, fg = theme.ui.fg_dim },
