@@ -11,12 +11,26 @@
 # Each root is scanned at depth 1 (its direct subdirectories = projects),
 # fed into fzf, then opened/attached as a tmux session.
 #
+# A session is a project and is meant to be long-lived: picking the same project
+# again always returns to the same session rather than making a new one. New
+# sessions are built with a fixed layout so window 1 and 2 mean the same thing
+# everywhere:
+#
+#   1:nvim   editor, already running
+#   2:sh     shell for git / tests / anything else
+#
 # Override scan depth ad-hoc with: TMUX_SESSIONIZER_DEPTH=2 tmux-sessionizer
 
 set -u
 
 ROOTS_FILE="$HOME/.config/tmux-sessionizer/paths"
 DEPTH="${TMUX_SESSIONIZER_DEPTH:-1}"
+
+# Window 1 runs the editor as the window's own process instead of typing it into
+# a shell — send-keys races the shell's startup and the keystrokes can be eaten.
+# The trailing `exec $SHELL` means quitting the editor leaves a usable shell
+# rather than closing the window out from under you.
+EDITOR_CMD="${TMUX_SESSIONIZER_EDITOR:-nvim}"
 
 # Resolve roots (uses `while read` instead of `mapfile` so it works on macOS's
 # default bash 3.2, not just bash 4+).
@@ -53,15 +67,14 @@ if [[ -z $selected ]]; then
 fi
 
 selected_name=$(basename "$selected" | tr . _ | tr ' ' _)
-tmux_running=$(pgrep tmux 2>/dev/null || true)
 
-if [[ -z ${TMUX:-} ]] && [[ -z $tmux_running ]]; then
-    tmux new-session -s "$selected_name" -c "$selected"
-    exit 0
-fi
-
+# Always build detached, then attach or switch below — `new-session -d` starts
+# the server itself when none is running, so the no-server case needs no
+# separate path.
 if ! tmux has-session -t="$selected_name" 2>/dev/null; then
-    tmux new-session -ds "$selected_name" -c "$selected"
+    tmux new-session -ds "$selected_name" -c "$selected" -n nvim \
+        "$EDITOR_CMD; exec ${SHELL:-/bin/sh}"
+    tmux new-window -dt "$selected_name:" -c "$selected" -n sh
 fi
 
 if [[ -z ${TMUX:-} ]]; then

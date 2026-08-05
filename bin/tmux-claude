@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# tmux-claude — jump to the workspace-root session and back again.
+#
+# Claude is always run from the workspace root (it needs every service, the
+# memory dir and the root CLAUDE.md conventions in one context), so it lives in
+# its own long-lived session rather than one window per service session.
+#
+# This toggles: anywhere -> workspace session, workspace session -> back to the
+# session you came from. The origin is remembered in a tmux user option instead
+# of relying on `switch-client -l`, whose history is empty after a fresh attach
+# or a tmux-continuum restore (making the toggle silently do nothing).
+#
+# Override the defaults per-user with:
+#   TMUX_WORKSPACE_PATH   (default ~/clarity)
+#   TMUX_WORKSPACE_NAME   (default: basename of the path)
+
+set -u
+
+WORKSPACE_PATH="${TMUX_WORKSPACE_PATH:-$HOME/clarity}"
+WORKSPACE_NAME="${TMUX_WORKSPACE_NAME:-$(basename "$WORKSPACE_PATH")}"
+ORIGIN_OPT="@workspace-origin"
+
+if [[ -z ${TMUX:-} ]]; then
+    echo "tmux-claude: must be run inside tmux" >&2
+    exit 1
+fi
+
+current=$(tmux display-message -p '#{session_name}')
+
+# Leaving the workspace session: go back where we came from.
+if [[ $current == "$WORKSPACE_NAME" ]]; then
+    origin=$(tmux show-option -gqv "$ORIGIN_OPT")
+    if [[ -n $origin ]] && tmux has-session -t="$origin" 2>/dev/null; then
+        tmux switch-client -t "$origin"
+    else
+        tmux switch-client -l
+    fi
+    exit 0
+fi
+
+# Entering it: remember where we were, create the session if it doesn't exist.
+tmux set-option -g "$ORIGIN_OPT" "$current"
+
+if ! tmux has-session -t="$WORKSPACE_NAME" 2>/dev/null; then
+    if [[ ! -d $WORKSPACE_PATH ]]; then
+        tmux display-message "tmux-claude: $WORKSPACE_PATH does not exist"
+        exit 1
+    fi
+    # Same reasoning as tmux-sessionizer: run claude as the window's process
+    # rather than send-keys, which races the shell's startup.
+    tmux new-session -ds "$WORKSPACE_NAME" -c "$WORKSPACE_PATH" -n claude \
+        "claude; exec ${SHELL:-/bin/sh}"
+    tmux new-window -dt "$WORKSPACE_NAME" -c "$WORKSPACE_PATH" -n sh
+fi
+
+tmux switch-client -t "$WORKSPACE_NAME"

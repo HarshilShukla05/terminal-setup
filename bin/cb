@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# cb — "clarity branches": which repos in the workspace are on a feature branch,
+# grouped by branch so a ticket's footprint across services reads as one line,
+# most recently committed first.
+#
+# With one session per service (rather than per ticket), the branch name is the
+# only thing tying a ticket's services together. This derives that footprint
+# from git instead of asking you to maintain it anywhere.
+#
+#   cb              every repo not on main/master
+#   cb FRD-1755     only branches matching FRD-1755
+#
+# Override the workspace with TMUX_WORKSPACE_PATH (default ~/clarity).
+
+set -u
+
+root="${TMUX_WORKSPACE_PATH:-$HOME/clarity}"
+filter="${1:-}"
+
+if [[ ! -d $root ]]; then
+    echo "cb: $root does not exist" >&2
+    exit 1
+fi
+
+cd "$root" || exit 1
+
+emit() {
+    local d branch ts age dirty
+    for d in */; do
+        d="${d%/}"
+        [[ -d "$d/.git" ]] || continue
+
+        branch=$(git -C "$d" branch --show-current 2>/dev/null) || continue
+        [[ -n $branch ]] || continue
+        case $branch in main | master) continue ;; esac
+        [[ -z $filter || $branch == *"$filter"* ]] || continue
+
+        ts=$(git -C "$d" log -1 --format=%ct 2>/dev/null) || continue
+        age=$(git -C "$d" log -1 --format=%cr 2>/dev/null)
+        dirty=""
+        [[ -n $(git -C "$d" status --porcelain 2>/dev/null | head -1) ]] && dirty="dirty"
+
+        printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$branch" "$d" "$age" "$dirty"
+    done
+}
+
+output=$(emit | sort -rn | awk -F'\t' '
+    {
+        if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2; age[$2] = $4 }
+        repos[$2] = ($2 in repos) ? repos[$2] ", " $3 : $3
+        if ($5 != "") dirty[$2] = 1
+    }
+    END {
+        for (i = 1; i <= n; i++) {
+            b = order[i]
+            printf "  %-40s %-44s %-16s %s\n", b, repos[b], age[b], (b in dirty ? "uncommitted" : "")
+        }
+    }
+')
+
+if [[ -z $output ]]; then
+    echo "  no repos on a feature branch${filter:+ matching \"$filter\"}"
+    exit 0
+fi
+
+printf '  %-40s %-44s %-16s %s\n' BRANCH SERVICES "LAST COMMIT" ""
+echo "$output"

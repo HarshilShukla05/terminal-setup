@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Print the git branch of a directory, prefixed with a branch glyph.
+# Silent (and exit 0) when the path isn't a repo or is in detached HEAD, so it
+# can be embedded in tmux's status-left without ever printing an error.
+#
+# Usage (tmux.conf):  #(tmux-branch '#{pane_current_path}')
+
+[ -n "${1:-}" ] || exit 0
+[ -d "$1" ] || exit 0
+
+branch=$(git -C "$1" branch --show-current 2>/dev/null) || exit 0
+[ -n "$branch" ] || exit 0
+
+printf ' %s' "$branch"
