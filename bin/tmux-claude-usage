@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+# tmux-claude-usage — Claude plan usage for the tmux status bar and a detail popup.
+#
+# The useful question is not "how much have I used" but "will I get blocked
+# before I finish this?", so both views lead with the reset countdown and warn
+# when the current burn rate would exhaust a window early.
+#
+#   tmux-claude-usage            one status-bar line (tmux #[...] styling)
+#   tmux-claude-usage --detail   plain-text breakdown
+#   tmux-claude-usage --popup    breakdown, then wait for a keypress
+#
+# The bar shows both windows as a rounded pill. Colour carries the state, and the
+# reset countdown is added only once a window drops to ATTENTION_PCT remaining —
+# there is no point spending width on a countdown you have no reason to read.
+#
+# Same source ClaudeBar.app uses: GET https://api.anthropic.com/api/oauth/usage,
+# authorised with the Claude Code OAuth token from the login Keychain. That
+# endpoint is internal and undocumented, so every failure is silent — a status
+# bar must never show an error or stall. The response is cached for CACHE_TTL
+# seconds because tmux re-runs the status format every status-interval (5s).
+#
+#   TMUX_CLAUDE_USAGE_MODE=remaining   (default) percent of quota left
+#   TMUX_CLAUDE_USAGE_MODE=used                  percent of quota consumed
+
+set -u
+
+RENDER=bar
+case "${1:-}" in
+    --detail) RENDER=detail ;;
+    --popup) RENDER=popup ;;
+    "") ;;
+    *)
+        echo "usage: $(basename "$0") [--detail|--popup]" >&2
+        exit 2
+        ;;
+esac
+
+MODE="${TMUX_CLAUDE_USAGE_MODE:-remaining}"
+CACHE_TTL=60
+CACHE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/tmux-claude-usage.json"
+KEYCHAIN_SERVICE="Claude Code-credentials"
+ATTENTION_PCT=50
+
+fetch() {
+    local token response
+    token=$(security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2>/dev/null |
+        python3 -c 'import json,sys; print(json.load(sys.stdin)["claudeAiOauth"]["accessToken"])' 2>/dev/null)
+    [[ -n $token ]] || return 1
+
+    response=$(curl -sS --max-time 5 https://api.anthropic.com/api/oauth/usage \
+        -H "Authorization: Bearer $token" \
+        -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null) || return 1
+
+    # Only overwrite once the payload is known-good, so a bad response leaves the
+    # last good numbers in place instead of blanking the bar.
+    echo "$response" |
+        python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("five_hour") else 1)' 2>/dev/null || return 1
+
+    mkdir -p "$(dirname "$CACHE_FILE")"
+    printf '%s' "$response" >"$CACHE_FILE.tmp.$$" && mv -f "$CACHE_FILE.tmp.$$" "$CACHE_FILE"
+}
+
+cache_age=""
+if [[ -f $CACHE_FILE ]]; then
+    mtime=$(stat -f %m "$CACHE_FILE" 2>/dev/null) && cache_age=$(($(date +%s) - mtime))
+fi
+
+if [[ -z $cache_age || $cache_age -ge $CACHE_TTL ]]; then
+    fetch || true
+fi
+
+render() {
+    [[ -f $CACHE_FILE ]] || return 0
+    RENDER="$RENDER" MODE="$MODE" ATTENTION_PCT="$ATTENTION_PCT" \
+        python3 - "$CACHE_FILE" <<'PY' 2>/dev/null
+import json, os, sys
+from datetime import datetime, timezone
+
+DIM, GREEN, YELLOW, RED = "#625e5a", "#98BB6C", "#E6C384", "#E46876"
+# Window length per key, needed to turn resets_at into "how far in am I" — the
+# payload gives the end of each window but never its start or its size.
+WINDOWS = (("5h", "five_hour", 5 * 3600), ("7d", "seven_day", 7 * 86400))
+# Below this fraction of a window elapsed, a burn-rate projection is dominated by
+# noise (one big request right after a reset reads as "on track to use 900%").
+MIN_ELAPSED_FRACTION = 0.1
+# Remaining-quota bands: at or below LOW_PCT is red, at or below the attention
+# threshold is yellow, anything above is green and stays quiet.
+LOW_PCT = 20.0
+MARK = "✻"
+# Powerline Extra half circles (U+E0B6 / U+E0B4), present in JetBrainsMono Nerd
+# Font. Drawn with the pill's background as *foreground* against the bar's
+# background, which is what makes them read as rounded caps rather than glyphs.
+PILL_LEFT, PILL_RIGHT = "", ""
+PILL_BG, OUTER_BG = "#0d0c0c", "#181616"
+
+try:
+    with open(sys.argv[1]) as fh:
+        data = json.load(fh)
+except Exception:
+    sys.exit(0)
+
+render = os.environ["RENDER"]
+mode = os.environ["MODE"]
+attention_pct = float(os.environ["ATTENTION_PCT"])
+now = datetime.now(timezone.utc)
+
+
+def humanize(seconds):
+    if seconds < 60:
+        return "<1m"
+    minutes = int(seconds // 60)
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h{minutes:02d}m"
+    days, hours = divmod(hours, 24)
+    return f"{days}d{hours:02d}h"
+
+
+def read_window(label, key, length):
+    raw = data.get(key)
+    if not isinstance(raw, dict):
+        return None
+    used = raw.get("utilization")
+    if used is None:
+        return None
+
+    used = float(used)
+    window = {
+        "label": label,
+        "used": used,
+        "left": max(0.0, 100.0 - used),
+        "reset_in": None,
+        "projected": None,
+    }
+
+    resets_at = raw.get("resets_at")
+    if resets_at:
+        try:
+            remaining = (datetime.fromisoformat(resets_at) - now).total_seconds()
+        except ValueError:
+            remaining = None
+        if remaining is not None and remaining > 0:
+            window["reset_in"] = remaining
+            elapsed_fraction = (length - remaining) / length
+            if elapsed_fraction >= MIN_ELAPSED_FRACTION:
+                window["projected"] = used / elapsed_fraction
+
+    return window
+
+
+def pace_flagged(window):
+    # A burn-rate projection is only worth acting on once the quota is actually
+    # getting low. Extrapolating a whole week from a day and a half of it reads as
+    # "over 100%" while 70% still remains, and there is nothing to do about that
+    # today — so healthy quota always outranks pace.
+    if window["projected"] is None or window["projected"] <= 100:
+        return False
+    return window["left"] <= attention_pct
+
+
+windows = [w for w in (read_window(*spec) for spec in WINDOWS) if w]
+if not windows:
+    sys.exit(0)
+
+
+def colour(window):
+    left = window["left"]
+    if left <= LOW_PCT:
+        return RED
+    if left <= attention_pct:
+        return YELLOW
+    return GREEN
+
+
+def percent(window):
+    return window["left"] if mode == "remaining" else window["used"]
+
+
+if render == "bar":
+    parts = []
+    for window in windows:
+        text = f"{window['label']} {percent(window):.0f}%"
+        if window["left"] <= attention_pct:
+            if window["reset_in"] is not None:
+                text += f" {humanize(window['reset_in'])}"
+            if pace_flagged(window):
+                text += "!"
+        parts.append(f"#[fg={colour(window)}]{text}")
+
+    body = f"#[fg={DIM}] · ".join(parts)
+    # The mark takes the colour of the tighter window, so the icon alone carries
+    # the state even before the numbers are read.
+    worst = min(windows, key=lambda w: w["left"])
+    print(
+        f"#[fg={PILL_BG},bg={OUTER_BG}]{PILL_LEFT}"
+        f"#[bg={PILL_BG}]#[fg={colour(worst)}] {MARK} {body} "
+        f"#[fg={PILL_BG},bg={OUTER_BG}]{PILL_RIGHT}",
+        end="",
+    )
+    sys.exit(0)
+
+print()
+print("  Claude usage")
+print()
+for window in windows:
+    reset = f"resets in {humanize(window['reset_in'])}" if window["reset_in"] is not None else "reset time unknown"
+    print(f"  {window['label']:<4} {window['left']:>5.0f}% left   {window['used']:>5.0f}% used   {reset}")
+    projected = window["projected"]
+    if projected is None:
+        note = "too early in the window to project"
+    elif pace_flagged(window):
+        note = f"over pace — this rate reaches {projected:.0f}% by reset"
+    else:
+        note = f"this rate reaches {projected:.0f}% by reset"
+    print(f"       {note}")
+    print()
+
+extra = data.get("extra_usage")
+if isinstance(extra, dict) and extra.get("monthly_limit"):
+    used_credits = extra.get("used_credits") or 0
+    limit = extra["monthly_limit"]
+    pct = extra.get("utilization")
+    pct_text = f" ({float(pct):.0f}%)" if pct is not None else ""
+    state = "enabled" if extra.get("is_enabled") else "disabled"
+    print(f"  Extra credits  {float(used_credits):.0f} / {limit}{pct_text}   [{state}]")
+    if extra.get("spend_limit_reached"):
+        print("       spend limit reached")
+    print()
+PY
+}
+
+case "$RENDER" in
+    bar | detail)
+        render
+        ;;
+    popup)
+        render
+        printf '  press any key '
+        read -rsn1
+        ;;
+esac

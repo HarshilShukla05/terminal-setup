@@ -26,6 +26,8 @@ return {
       opts.pickers = vim.tbl_deep_extend("force", opts.pickers or {}, {
         find_files = {
           hidden = true,
+          no_ignore = true,
+          file_ignore_patterns = { "node_modules/", "%.git/" },
         },
         git_files = {
           show_untracked = true,

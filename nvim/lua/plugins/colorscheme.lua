@@ -28,6 +28,26 @@ return {
                 },
               },
             },
+            -- Punch up Dragon's syntax: keep the warm Dragon background/UI but
+            -- swap the muted dragon* syntax palette for Kanagawa's saturated
+            -- "wave" colors so code reads more vividly. Dark variant only;
+            -- lotus (light) is untouched.
+            dragon = {
+              syn = {
+                string = "#98BB6C", -- springGreen
+                fun = "#7E9CD8", -- crystalBlue
+                keyword = "#957FB8", -- oniViolet
+                statement = "#957FB8", -- oniViolet
+                type = "#7AA89F", -- waveAqua2
+                number = "#D27E99", -- sakuraPink
+                constant = "#FFA066", -- surimiOrange
+                identifier = "#E6C384", -- carpYellow
+                parameter = "#b8b4d0", -- oniViolet2
+                operator = "#C0A36E", -- boatYellow2
+                special1 = "#7FB4CA", -- springBlue
+                comment = "#8a9387", -- lighter than dragonAsh: readable, still subdued
+              },
+            },
           },
         },
         overrides = function(colors)
@@ -44,15 +64,16 @@ return {
             FloatBorder = { bg = "none" },
             FloatTitle  = { bg = "none" },
 
-            -- Telescope: same Dragon-green accent for all 3 boxes — titles as
+            -- Telescope: punchy springGreen accent for all 3 boxes — titles as
             -- filled chips (dark text on green) and the box borders in green.
-            TelescopeResultsTitle  = { fg = "#181616", bg = "#87a987", bold = true },
-            TelescopePreviewTitle  = { fg = "#181616", bg = "#87a987", bold = true },
-            TelescopePromptTitle   = { fg = "#181616", bg = "#87a987", bold = true },
-            TelescopeBorder        = { fg = "#87a987" },
-            TelescopeResultsBorder = { fg = "#87a987" },
-            TelescopePreviewBorder = { fg = "#87a987" },
-            TelescopePromptBorder  = { fg = "#87a987" },
+            -- Matches the new saturated syntax string color.
+            TelescopeResultsTitle  = { fg = "#181616", bg = "#98BB6C", bold = true },
+            TelescopePreviewTitle  = { fg = "#181616", bg = "#98BB6C", bold = true },
+            TelescopePromptTitle   = { fg = "#181616", bg = "#98BB6C", bold = true },
+            TelescopeBorder        = { fg = "#98BB6C" },
+            TelescopeResultsBorder = { fg = "#98BB6C" },
+            TelescopePreviewBorder = { fg = "#98BB6C" },
+            TelescopePromptBorder  = { fg = "#98BB6C" },
             NormalDark = { fg = theme.ui.fg_dim, bg = theme.ui.bg_m3 },
             LazyNormal = { bg = theme.ui.bg_m3, fg = theme.ui.fg_dim },
             MasonNormal = { bg = theme.ui.bg_m3, fg = theme.ui.fg_dim },
