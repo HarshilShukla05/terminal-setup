@@ -48,6 +48,22 @@ if [ -d "$repo_root/bin" ]; then
   done
 fi
 
+# ─── tmux plugin manager ────────────────────────────────────
+# tmux/plugins/ is gitignored, so a fresh clone has no TPM and tmux.conf's
+# `run '~/.config/tmux/plugins/tpm/tpm'` would be a no-op. Clone it and install
+# the plugins declared in tmux.conf so tmux works right after cloning.
+tpm_dir="$repo_root/tmux/plugins/tpm"
+if [ ! -d "$tpm_dir" ]; then
+  echo "cloning tpm -> $tpm_dir"
+  git clone --depth 1 https://github.com/tmux-plugins/tpm "$tpm_dir"
+else
+  echo "tpm already present at $tpm_dir"
+fi
+if [ -x "$tpm_dir/bin/install_plugins" ]; then
+  echo "installing tmux plugins…"
+  "$tpm_dir/bin/install_plugins" || echo "NOTE: plugin install incomplete; run prefix+I inside tmux."
+fi
+
 # Warn if ~/.local/bin isn't on PATH (most macOS shells include it by default).
 case ":${PATH:-}:" in
   *":$local_bin:"*) ;;
