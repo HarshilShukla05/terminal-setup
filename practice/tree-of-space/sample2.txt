@@ -1,0 +1,21 @@
+7
+2
+11
+World
+Asia
+Africa
+China
+India
+SouthAfrica
+Egypt
+1 China 1
+1 China 2
+1 Asia 1
+1 World 1
+2 China 2
+1 Nowhere 1
+3 Asia 1
+3 Asia 1
+2 China 1
+2 Asia 1
+1 World 5
