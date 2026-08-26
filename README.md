@@ -1,50 +1,66 @@
-# Shared Terminal Dotfiles
+# terminal-setup
 
-This directory is the single source of truth for the shared `kitty`, `tmux`,
-and `nvim` configuration used by both macOS users on this machine.
+My terminal environment: **kitty + tmux + nvim** (LazyVim base, kanagawa-dragon
+theme), plus a few helper scripts. Clone it on any machine and run one script.
+
+## Quick start
+
+```bash
+git clone https://github.com/HarshilShukla05/terminal-setup.git ~/.dotfiles
+~/.dotfiles/bootstrap-user.sh
+```
+
+That script is idempotent — safe to re-run any time. It:
+
+1. Symlinks `~/.config/{kitty,tmux,nvim}` at this repo (backing up anything
+   already there to `*.pre-shared-<timestamp>`).
+2. Symlinks `bin/*` into `~/.local/bin` so `tmux-sessionizer` and friends
+   resolve on PATH.
+3. Clones TPM and installs the tmux plugins.
+
+Then open Neovim once — lazy.nvim bootstraps itself and installs plugins from
+the pinned `nvim/lazy-lock.json`.
+
+The clone location doesn't matter; every path is derived from the repo root.
 
 ## Layout
 
-- `kitty/`
-- `tmux/`
-- `nvim/`
+| Path | What |
+| --- | --- |
+| `kitty/` | terminal config + kanagawa theme |
+| `tmux/` | `tmux.conf`, TPM plugin list, status bar |
+| `nvim/` | LazyVim config, Prime-style keymaps, pinned plugin lockfile |
+| `bin/` | `tmux-sessionizer`, `tmux-claude`, `tmux-branch`, `cb` |
 
-The `tmux/plugins/` directory is intentionally ignored by Git. TPM can manage
-those plugin clones inside the shared directory without polluting version
-control.
+Not tracked (installed on demand): `tmux/plugins/`, `tmux/resurrect/`, and
+nvim's plugin data under `~/.local/share/nvim`.
 
-## Current behavior
+## Per-machine bits
 
-Both users should point these paths at this repo:
+Project roots for `tmux-sessionizer` (prefix+f) are **not** in this repo — each
+machine lists its own in `~/.config/tmux-sessionizer/paths`, one per line:
 
-- `~/.config/kitty`
-- `~/.config/tmux`
-- `~/.config/nvim`
-
-That means config changes are not "synced" by pulling. They are the same files,
-so a change from either user is immediately visible to the other user.
-
-## Bootstrap another user
-
-Run this once from the target account:
-
-```bash
-/Users/Shared/dotfiles/bootstrap-user.sh
+```
+~/projects
+~/work
 ```
 
-The script backs up any existing config directories to
-`*.pre-shared-<timestamp>` and then replaces them with symlinks.
+Without that file it falls back to `~/projects`, `~/Developer`, `~/work`.
 
-## Git usage
+## Requirements
 
-```bash
-git -C /Users/Shared/dotfiles status
-git -C /Users/Shared/dotfiles add .
-git -C /Users/Shared/dotfiles commit -m "Update terminal config"
-```
+`git`, `tmux` >= 3.2, `nvim` >= 0.9, and optionally `kitty`. `fzf` and
+`ripgrep` are expected by the sessionizer and telescope.
 
 ## Reloading
 
-- `kitty`: `ctrl+shift+f5` or `kill -SIGUSR1 $KITTY_PID`
-- `tmux`: `tmux source-file ~/.config/tmux/tmux.conf`
-- `nvim`: restart Neovim
+- kitty: `ctrl+shift+f5`
+- tmux: prefix+r
+- nvim: restart
+
+## Two accounts on one Mac
+
+Both macOS users can share a single clone (e.g. in `/Users/Shared/dotfiles`) by
+running `bootstrap-user.sh` from each account — the symlinks point at the same
+files, so a change from either account is live for both immediately. Keep the
+tree group-writable + setgid so both can commit.
