@@ -41,7 +41,10 @@ struct TreeOfSpace {
     TreeOfSpace(int nodes, int arity)
         : n(nodes), m(arity), lockedBy(nodes, -1), lockedInSub(nodes, 0) {}
 
-    int parent(int v) const { return v == 0 ? -1 : (v - 1) / m; }
+    int parent(int v) const {
+        if (v == 0) return -1;                              // root has no parent
+        return (v - 1) / m;
+    }
 
     bool ancestorLocked(int v) const {
         for (int p = parent(v); p != -1; p = parent(p))
@@ -97,10 +100,11 @@ struct TreeOfSpace {
 };
 
 // drops stray '\r' / blanks so CRLF input can never poison a name lookup
+// (32 == ' ': compares against the code point so no fragile char literal is needed)
 string clean(const string& s) {
     size_t b = 0, e = s.size();
-    while (b < e && (unsigned char)s[b] <= ' ') ++b;
-    while (e > b && (unsigned char)s[e - 1] <= ' ') --e;
+    while (b < e && (unsigned char)s[b] <= 32) ++b;
+    while (e > b && (unsigned char)s[e - 1] <= 32) --e;
     return s.substr(b, e - b);
 }
 
