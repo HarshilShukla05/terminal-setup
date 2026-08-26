@@ -48,21 +48,29 @@ if [ -d "$repo_root/bin" ]; then
   done
 fi
 
-# ─── tmux plugin manager ────────────────────────────────────
+# ─── tmux plugins ───────────────────────────────────────────
 # tmux/plugins/ is gitignored, so a fresh clone has no TPM and tmux.conf's
-# `run '~/.config/tmux/plugins/tpm/tpm'` would be a no-op. Clone it and install
-# the plugins declared in tmux.conf so tmux works right after cloning.
-tpm_dir="$repo_root/tmux/plugins/tpm"
-if [ ! -d "$tpm_dir" ]; then
-  echo "cloning tpm -> $tpm_dir"
-  git clone --depth 1 https://github.com/tmux-plugins/tpm "$tpm_dir"
-else
-  echo "tpm already present at $tpm_dir"
-fi
-if [ -x "$tpm_dir/bin/install_plugins" ]; then
-  echo "installing tmux plugins…"
-  "$tpm_dir/bin/install_plugins" || echo "NOTE: plugin install incomplete; run prefix+I inside tmux."
-fi
+# `run '~/.config/tmux/plugins/tpm/tpm'` would be a no-op. Clone every plugin
+# declared in tmux.conf (TPM itself included) straight into the repo.
+#
+# Deliberately NOT using TPM's bin/install_plugins: it resolves its target
+# directory from an already-running tmux server, so on a machine where tmux is
+# up with another config it installs into the wrong checkout.
+plugins_dir="$repo_root/tmux/plugins"
+mkdir -p "$plugins_dir"
+while IFS= read -r spec; do
+  [ -n "$spec" ] || continue
+  dest="$plugins_dir/${spec##*/}"
+  if [ -d "$dest" ]; then
+    echo "plugin ${spec##*/} already present"
+  else
+    echo "cloning $spec"
+    git clone --quiet --depth 1 "https://github.com/$spec" "$dest" ||
+      echo "NOTE: could not clone $spec — run prefix+I inside tmux to retry."
+  fi
+done <<PLUGINS
+$(sed -nE "s/^[[:space:]]*set -g @plugin '([^']+)'.*/\1/p" "$repo_root/tmux/tmux.conf")
+PLUGINS
 
 # Warn if ~/.local/bin isn't on PATH (most macOS shells include it by default).
 case ":${PATH:-}:" in
