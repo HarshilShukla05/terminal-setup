@@ -3,143 +3,88 @@ using namespace std;
 
 string trim(string);
 
-/* ------------------------------------------------------------------------ *
- *  Tree of Space  --  lock / unlock / upgradeLock on a complete m-ary tree.
- *
- *  The N node names arrive in level order of a fully balanced m-ary tree, so
- *  the tree never has to be materialised with pointers:
- *        children(v) = v*m + 1 ... v*m + m
- *        parent(v)   = (v - 1) / m
- *  Depth is therefore log_m(N)  (<= 19 for N = 5*10^5, m = 2).
- *
- *  State per node:
- *        lockedBy[v]    uid holding the lock on v, or -1 when v is free
- *        lockedInSub[v] how many locked nodes live strictly below v
- *
- *  lockedInSub lets every check be answered without touching the subtree:
- *        lock(X)     : X free, no ancestor locked (walk up), lockedInSub[X]==0
- *        unlock(X)   : X locked by this very uid
- *        upgrade(X)  : X free, lockedInSub[X] > 0, every locked descendant
- *                      belongs to uid  (descendants are gathered by a DFS that
- *                      only enters branches whose lockedInSub says a lock is
- *                      hiding in there, and stops at the first locked node on
- *                      each path because locks can never nest)
- *
- *  Complexity   lock / unlock    O(log_m N)
- *               upgradeLock      O(lockedDescendants * log_m N)   [* m for the
- *                                child scan, m < 30, and the total work over a
- *                                whole run is still bounded by the locks made]
- *  Memory       O(N) ints -- no per-node containers.
- * ------------------------------------------------------------------------ */
-namespace {
+/*  Tree of Space.
+    The tree is complete and given in level order, so it is never built:
+        par(v) = (v-1)/m,  children(v) = v*m+1 .. v*m+m,  depth = log_m(N).
+    lockedBy[v] = uid holding v (-1 = free), cnt[v] = locked nodes below v.
+    Locked nodes form an antichain, so cnt answers every check in O(1).
+    lock/unlock O(log_m N), upgrade O(locked descendants * log_m N), O(N) space.  */
 
-struct TreeOfSpace {
-    int n, m;
-    vector<int> lockedBy;
-    vector<int> lockedInSub;
+int n, m;
+vector<int> lockedBy, cnt;
 
-    TreeOfSpace(int nodes, int arity)
-        : n(nodes), m(arity), lockedBy(nodes, -1), lockedInSub(nodes, 0) {}
+int par(int v) { return v ? (v - 1) / m : -1; }
 
-    int parent(int v) const {
-        if (v == 0) return -1;                              // root has no parent
-        return (v - 1) / m;
-    }
-
-    bool ancestorLocked(int v) const {
-        for (int p = parent(v); p != -1; p = parent(p))
-            if (lockedBy[p] != -1) return true;
-        return false;
-    }
-
-    void addToAncestors(int v, int delta) {
-        for (int p = parent(v); p != -1; p = parent(p)) lockedInSub[p] += delta;
-    }
-
-    void collectLocked(int v, vector<int>& out) const {
-        int first = v * m + 1;
-        int last  = min(first + m, n);
-        for (int c = first; c < last; ++c) {
-            if (lockedBy[c] != -1) out.push_back(c);        // nothing locked below it
-            else if (lockedInSub[c] > 0) collectLocked(c, out);
-        }
-    }
-
-    bool lock(int v, int uid) {
-        if (lockedBy[v] != -1) return false;                // already locked
-        if (lockedInSub[v] > 0) return false;               // a descendant is locked
-        if (ancestorLocked(v)) return false;                // an ancestor is locked
-        lockedBy[v] = uid;
-        addToAncestors(v, +1);
-        return true;
-    }
-
-    bool unlock(int v, int uid) {
-        if (lockedBy[v] == -1 || lockedBy[v] != uid) return false;
-        lockedBy[v] = -1;
-        addToAncestors(v, -1);
-        return true;
-    }
-
-    bool upgrade(int v, int uid) {
-        if (lockedBy[v] != -1) return false;                // upgrading a locked node fails
-        if (lockedInSub[v] == 0) return false;              // nothing to upgrade from
-        if (ancestorLocked(v)) return false;                // defensive: keeps the invariant
-        vector<int> locked;
-        collectLocked(v, locked);
-        for (int d : locked)
-            if (lockedBy[d] != uid) return false;           // someone else owns a descendant
-        for (int d : locked) {
-            lockedBy[d] = -1;
-            addToAncestors(d, -1);
-        }
-        lockedBy[v] = uid;
-        addToAncestors(v, +1);
-        return true;
-    }
-};
-
-// drops stray '\r' / blanks so CRLF input can never poison a name lookup
-// (32 == ' ': compares against the code point so no fragile char literal is needed)
-string clean(const string& s) {
-    size_t b = 0, e = s.size();
-    while (b < e && (unsigned char)s[b] <= 32) ++b;
-    while (e > b && (unsigned char)s[e - 1] <= 32) --e;
-    return s.substr(b, e - b);
+bool ancLocked(int v) {
+    for (int p = par(v); p != -1; p = par(p))
+        if (lockedBy[p] != -1) return true;
+    return false;
 }
 
-} // namespace
+void bump(int v, int d) {
+    for (int p = par(v); p != -1; p = par(p)) cnt[p] += d;
+}
+
+void gather(int v, vector<int> &out) {
+    for (int c = v * m + 1, e = min(v * m + 1 + m, n); c < e; c++) {
+        if (lockedBy[c] != -1) out.push_back(c);   // locks never nest, stop here
+        else if (cnt[c] > 0) gather(c, out);       // only descend where a lock hides
+    }
+}
+
+bool doLock(int v, int uid) {
+    if (lockedBy[v] != -1 || cnt[v] > 0 || ancLocked(v)) return false;
+    lockedBy[v] = uid;
+    bump(v, 1);
+    return true;
+}
+
+bool doUnlock(int v, int uid) {
+    if (lockedBy[v] != uid) return false;          // uid >= 1, so this covers "free"
+    lockedBy[v] = -1;
+    bump(v, -1);
+    return true;
+}
+
+bool doUpgrade(int v, int uid) {
+    if (lockedBy[v] != -1 || cnt[v] == 0) return false;   // cnt > 0 => no locked ancestor
+    vector<int> d;
+    gather(v, d);
+    for (int i = 0; i < (int)d.size(); i++)
+        if (lockedBy[d[i]] != uid) return false;
+    for (int i = 0; i < (int)d.size(); i++) {
+        lockedBy[d[i]] = -1;
+        bump(d[i], -1);
+    }
+    lockedBy[v] = uid;
+    bump(v, 1);
+    return true;
+}
 
 vector<string> handleActions() {
-    int n, m, q;
-    if (!(cin >> n >> m >> q)) return {};
+    int q;
+    cin >> n >> m >> q;
+    lockedBy.assign(n, -1);
+    cnt.assign(n, 0);
 
-    TreeOfSpace tree(n, m);
-    unordered_map<string, int> indexOf;
-    indexOf.reserve(n * 2);
+    unordered_map<string, int> id;
+    id.reserve(2 * n);
+    string s;
+    for (int i = 0; i < n; i++) { cin >> s; id[s] = i; }   // level order == array order
 
-    string name;
-    for (int i = 0; i < n; ++i) {
-        if (!(cin >> name)) break;
-        indexOf[clean(name)] = i;                           // level order == array order
-    }
-
-    vector<string> result;
-    result.reserve(q);
-    for (int i = 0; i < q; ++i) {
+    vector<string> res;
+    res.reserve(q);
+    for (int i = 0; i < q; i++) {
         int op, uid;
-        if (!(cin >> op >> name >> uid)) break;
+        cin >> op >> s >> uid;
+        int v = id[s];
         bool ok = false;
-        auto it = indexOf.find(clean(name));
-        if (it != indexOf.end()) {
-            int v = it->second;
-            if (op == 1)      ok = tree.lock(v, uid);
-            else if (op == 2) ok = tree.unlock(v, uid);
-            else if (op == 3) ok = tree.upgrade(v, uid);
-        }
-        result.push_back(ok ? "true" : "false");
+        if (op == 1) ok = doLock(v, uid);
+        else if (op == 2) ok = doUnlock(v, uid);
+        else ok = doUpgrade(v, uid);
+        res.push_back(ok ? "true" : "false");
     }
-    return result;
+    return res;
 }
 
 int main() {
